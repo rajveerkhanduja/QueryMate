@@ -8,6 +8,8 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.chains.question_answering import load_qa_chain
 from langchain.prompts import PromptTemplate
 from dotenv import load_dotenv
+import pandas as pd
+import altair as alt
 
 # Load environment variables
 load_dotenv()
@@ -29,7 +31,6 @@ def get_pdf_text(pdf):
     return text
 
 def generate_questions(resume_text):
-    # Use the Gemini model to generate precise and technical questions based on the resume text
     model = ChatGoogleGenerativeAI(model="gemini-pro", temperature=0.7)
     prompt = (
         f"Generate technical interview questions based on the following resume text. "
@@ -51,68 +52,59 @@ def generate_questions(resume_text):
 
     return filtered_questions
 
-def get_text_chunks(text):
-    from langchain.text_splitter import RecursiveCharacterTextSplitter
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=100000, chunk_overlap=1000)
-    chunks = text_splitter.split_text(text)
-    return chunks
-
-def get_vector_store(text_chunks):
-    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-    vector_store = FAISS.from_texts(text_chunks, embedding=embeddings)
-    vector_store.save_local("faiss_index")
-
-def get_conversational_chain():
-    prompt_template = """
-    Answer the question as detailed as possible from the provided context. Make sure to provide all the details. If the answer is not in
-    the provided context, just say, "answer is not available in the context", and don't provide a wrong answer.\n\n
-    Context:\n{context}\n
-    Question:\n{question}\n
-    Answer:
-    """
-
-    model = ChatGoogleGenerativeAI(model="gemini-pro", temperature=0.3)
-    prompt = PromptTemplate(template=prompt_template, input_variables=["context", "question"])
-    chain = load_qa_chain(model, chain_type="stuff", prompt=prompt)
-
-    return chain
-
 def evaluate_answers(questions_and_answers):
-    # Placeholder for evaluating answers
-    # In a real implementation, you'd use the conversational chain to evaluate each answer
+    model = ChatGoogleGenerativeAI(model="gemini-pro", temperature=0.7)
     score = 0
     total = len(questions_and_answers)
-    
-    # Dummy evaluation logic
+    results = []
+
     for q, a in questions_and_answers:
-        if a:  # assuming non-empty answers are correct for demo purposes
-            score += 1
-    
-    percentage = (score / total) * 100
-    return percentage
+        prompt = (
+            f"Question: {q}\n"
+            f"Answer provided: {a}\n"
+            f"Is the provided answer correct, partially correct, or incorrect? Respond with 'Yes', 'Partially Correct', or 'No'."
+        )
+        response = model.predict(prompt)
+        if "Yes" in response:
+            correct = "Yes"
+            score += 10
+        elif "Partially Correct" in response:
+            correct = "Partially Correct"
+            score += 5
+        else:
+            correct = "No"
+        results.append((q, correct))
+
+    percentage = (score / (total * 10)) * 100
+    return percentage, results
 
 def main():
     st.set_page_config(page_title="QueryMate🤖", layout="wide")
     st.title("QueryMate🤖 - Your Technical Interviewer")
 
-    with st.sidebar:
-        st.header("Menu")
-        st.write("Upload your resume to generate interview questions.")
-        pdf_doc = st.file_uploader("Upload your Resume (PDF)", type="pdf")
-        if st.button("Submit & Process"):
-            if pdf_doc:
-                with st.spinner("Processing..."):
-                    raw_text = get_pdf_text(pdf_doc)
-                    if raw_text:
-                        questions = generate_questions(raw_text)
-                        st.session_state['questions'] = questions
-                        st.success("Questions generated successfully!")
-                    else:
-                        st.error("Failed to extract text from PDF file. Make sure your resume is formatted correctly.")
-            else:
-                st.error("Please upload a PDF file.")
-    
-    if 'questions' in st.session_state:
+    if 'page' not in st.session_state:
+        st.session_state.page = 'home'
+
+    if st.session_state.page == 'home':
+        with st.sidebar:
+            st.header("Menu")
+            st.write("Upload your resume to generate interview questions.")
+            pdf_doc = st.file_uploader("Upload your Resume (PDF)", type="pdf")
+            if st.button("Submit & Process"):
+                if pdf_doc:
+                    with st.spinner("Processing..."):
+                        raw_text = get_pdf_text(pdf_doc)
+                        if raw_text:
+                            questions = generate_questions(raw_text)
+                            st.session_state['questions'] = questions
+                            st.session_state.page = 'questions'
+                            st.experimental_rerun()
+                        else:
+                            st.error("Failed to extract text from PDF file. Make sure your resume is formatted correctly.")
+                else:
+                    st.error("Please upload a PDF file.")
+
+    elif st.session_state.page == 'questions':
         st.subheader("Please answer the following questions:")
         answers = []
         for i, question in enumerate(st.session_state['questions']):
@@ -121,8 +113,42 @@ def main():
             answers.append((question, answer))
         
         if st.button("Submit Answers"):
-            percentage = evaluate_answers(answers)
-            st.write(f"Your score is: {percentage:.2f}%")
+            st.session_state['answers'] = answers
+            st.session_state.page = 'result'
+            st.experimental_rerun()
+
+    elif st.session_state.page == 'result':
+        st.write("Evaluating your answers, please wait...")
+        with st.spinner("Analyzing..."):
+            percentage, results = evaluate_answers(st.session_state['answers'])
+        
+        st.success("Processing complete!")
+        st.balloons()  # Displays a balloon animation
+        st.write(f"Your score is: {percentage:.2f}%")
+
+        # Display results in a table with only Question and Correct columns
+        results_df = pd.DataFrame(results, columns=["Question", "Correct"])
+        st.table(results_df)  # Hide the index
+
+        # Display results in a pie chart
+        correct_count = results_df['Correct'].value_counts().to_dict()
+        pie_data = pd.DataFrame({
+            'Category': ['Yes', 'Partially Correct', 'No'],
+            'Count': [
+                correct_count.get('Yes', 0),
+                correct_count.get('Partially Correct', 0),
+                correct_count.get('No', 0)
+            ]
+        })
+        pie_chart = alt.Chart(pie_data).mark_arc().encode(
+            theta=alt.Theta(field="Count", type="quantitative"),
+            color=alt.Color(field="Category", type="nominal"),
+            tooltip=['Category', 'Count']
+        ).properties(
+            width=400,
+            height=400
+        )
+        st.altair_chart(pie_chart)
 
 if __name__ == "__main__":
     main()
