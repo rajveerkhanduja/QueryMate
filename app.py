@@ -59,20 +59,23 @@ def evaluate_answers(questions_and_answers):
     results = []
 
     for q, a in questions_and_answers:
-        prompt = (
-            f"Question: {q}\n"
-            f"Answer provided: {a}\n"
-            f"Is the provided answer correct, partially correct, or incorrect? Respond with 'Yes', 'Partially Correct', or 'No'."
-        )
-        response = model.predict(prompt)
-        if "Yes" in response:
-            correct = "Yes"
-            score += 10
-        elif "Partially Correct" in response:
-            correct = "Partially Correct"
-            score += 5
-        else:
+        if not a.strip():  # Check if the answer is empty or only contains whitespace
             correct = "No"
+        else:
+            prompt = (
+                f"Question: {q}\n"
+                f"Answer provided: {a}\n"
+                f"Is the provided answer correct, partially correct, or incorrect? Respond with 'Yes', 'Partially Correct', or 'No'."
+            )
+            response = model.predict(prompt)
+            if "Yes" in response:
+                correct = "Yes"
+                score += 10
+            elif "Partially Correct" in response:
+                correct = "Partially Correct"
+                score += 5
+            else:
+                correct = "No"
         results.append((q, correct))
 
     percentage = (score / (total * 10)) * 100
@@ -87,7 +90,7 @@ def main():
 
     if st.session_state.page == 'home':
         with st.sidebar:
-            st.header("Menu")
+            st.header("Menu:")
             st.write("Upload your resume to generate interview questions.")
             pdf_doc = st.file_uploader("Upload your Resume (PDF)", type="pdf")
             if st.button("Submit & Process"):
@@ -118,17 +121,34 @@ def main():
             st.experimental_rerun()
 
     elif st.session_state.page == 'result':
-        st.write("Evaluating your answers, please wait...")
-        with st.spinner("Analyzing..."):
+        with st.spinner("Evaluating your answers, please wait..."):
             percentage, results = evaluate_answers(st.session_state['answers'])
         
         st.success("Processing complete!")
         st.balloons()  # Displays a balloon animation
         st.write(f"Your score is: {percentage:.2f}%")
 
-        # Display results in a table with only Question and Correct columns
-        results_df = pd.DataFrame(results, columns=["Question", "Correct"])
-        st.table(results_df)  # Hide the index
+        # CSS to left-align the column headers
+        st.markdown(
+            """
+            <style>
+            table {
+                width: 100%;
+            }
+            th {
+                text-align: left !important;
+            }
+            td {
+                text-align: left !important;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        # Display results in a table without index
+        results_df = pd.DataFrame(results, columns=["Questions", "Correct"])
+        st.markdown(results_df.to_html(index=False), unsafe_allow_html=True)
 
         # Display results in a pie chart
         correct_count = results_df['Correct'].value_counts().to_dict()
