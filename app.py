@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 import pandas as pd
 import altair as alt
 
-# Load environment variables
+
 load_dotenv()
 api_key = os.getenv("GOOGLE_API_KEY")
 
@@ -38,18 +38,13 @@ def generate_questions(resume_text):
         f"Do not include topic names or question numbers or bullet point the questions in your response give only 10 shuffled questions related to the given text:\n\n{resume_text}\n\nQuestions:"
     )
     response = model.predict(prompt)
-    questions = response.split('\n')  # Assuming each question is separated by a newline
-
-    # Filter out non-question items (headings)
+    questions = response.split('\n')
     filtered_questions = [
         q for q in questions if q.strip() and not q.startswith('Question ') and not q.endswith(':')
     ]
-    
-    # Further filter to remove any lines starting with "Question"
     filtered_questions = [
         q for q in filtered_questions if not q.lower().startswith("question ")
     ]
-
     return filtered_questions
 
 def evaluate_answers(questions_and_answers):
@@ -59,7 +54,7 @@ def evaluate_answers(questions_and_answers):
     results = []
 
     for q, a in questions_and_answers:
-        if not a.strip():  # Check if the answer is empty or only contains whitespace
+        if not a.strip():
             correct = "No"
         else:
             prompt = (
@@ -127,8 +122,6 @@ def main():
         st.success("Processing complete!")
         st.balloons()  # Displays a balloon animation
         st.write(f"Your score is: {percentage:.2f}%")
-
-        # CSS to left-align the column headers
         st.markdown(
             """
             <style>
@@ -146,11 +139,11 @@ def main():
             unsafe_allow_html=True,
         )
 
-        # Display results in a table without index
+        #table
         results_df = pd.DataFrame(results, columns=["Questions", "Correct"])
         st.markdown(results_df.to_html(index=False), unsafe_allow_html=True)
 
-        # Display results in a pie chart
+        #piechart
         correct_count = results_df['Correct'].value_counts().to_dict()
         pie_data = pd.DataFrame({
             'Category': ['Yes', 'Partially Correct', 'No'],
